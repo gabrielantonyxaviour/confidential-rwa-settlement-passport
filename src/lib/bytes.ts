@@ -3,7 +3,9 @@ import { nativeToScVal, xdr } from "@stellar/stellar-sdk";
 export type Bytes32Hex = string;
 
 export function stripHexPrefix(value: string): string {
-  return value.startsWith("0x") || value.startsWith("0X") ? value.slice(2) : value;
+  return value.startsWith("0x") || value.startsWith("0X")
+    ? value.slice(2)
+    : value;
 }
 
 export function normalizeBytes32Hex(value: string): Bytes32Hex {
@@ -14,7 +16,9 @@ export function normalizeBytes32Hex(value: string): Bytes32Hex {
   }
 
   if (hex.length > 64) {
-    throw new Error("Expected a 32-byte value, but the hexadecimal value is longer than 32 bytes.");
+    throw new Error(
+      "Expected a 32-byte value, but the hexadecimal value is longer than 32 bytes.",
+    );
   }
 
   return hex.padStart(64, "0");
@@ -36,7 +40,9 @@ export function bytes32HexToUint8Array(value: string): Uint8Array {
 }
 
 export function uint8ArrayToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
 }
 
 export function uint8ArrayToBytes32Hex(bytes: Uint8Array): Bytes32Hex {
@@ -45,6 +51,20 @@ export function uint8ArrayToBytes32Hex(bytes: Uint8Array): Bytes32Hex {
   }
 
   return normalizeBytes32Hex(uint8ArrayToHex(bytes));
+}
+
+export function hexFieldsToUint8Array(fields: string[]): Uint8Array {
+  const bytes = new Uint8Array(fields.length * 32);
+
+  fields.forEach((field, index) => {
+    bytes.set(bytes32HexToUint8Array(field), index * 32);
+  });
+
+  return bytes;
+}
+
+export function bytesToScVal(bytes: Uint8Array): xdr.ScVal {
+  return nativeToScVal(bytes, { type: "bytes" });
 }
 
 export function bytes32HexToScVal(value: string): xdr.ScVal {

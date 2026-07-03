@@ -15,8 +15,14 @@ import {
   SOROBAN_RPC_URL,
   stellarExpertTxUrl,
 } from "./config";
-import { bytes32HexToScVal, normalizeBytes32Hex } from "./bytes";
+import {
+  bytes32HexToScVal,
+  bytesToScVal,
+  hexFieldsToUint8Array,
+  normalizeBytes32Hex,
+} from "./bytes";
 import { normalizeContractError } from "./errors";
+import type { SettlementProofResult } from "./proof";
 import type { SignTransaction } from "./wallet-kit";
 
 export { stellarExpertTxUrl };
@@ -24,16 +30,19 @@ export { stellarExpertTxUrl };
 const server = new rpc.Server(SOROBAN_RPC_URL);
 const receiptGateContract = new Contract(RECEIPT_GATE_CONTRACT_ID);
 const settlementContract = new Contract(SETTLEMENT_CONTRACT_ID);
-const READ_ONLY_SOURCE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+const READ_ONLY_SOURCE =
+  "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
 export async function recordPass(
   voterAddress: string,
   credentialRoot: string,
   nullifier: string,
   actionId: string,
-  verifierHash: string,
+  proof: SettlementProofResult,
   signTransaction: SignTransaction,
 ): Promise<{ hash: string }> {
+  const publicInputs = hexFieldsToUint8Array(proof.publicInputs);
+
   try {
     return await submitContractOperation(
       voterAddress,
@@ -42,7 +51,8 @@ export async function recordPass(
         bytes32HexToScVal(normalizeBytes32Hex(credentialRoot)),
         bytes32HexToScVal(normalizeBytes32Hex(nullifier)),
         bytes32HexToScVal(normalizeBytes32Hex(actionId)),
-        bytes32HexToScVal(normalizeBytes32Hex(verifierHash)),
+        bytesToScVal(publicInputs),
+        bytesToScVal(proof.proof),
       ),
       signTransaction,
       "receipt_gate",
@@ -79,7 +89,10 @@ export async function settle(
 
 export async function getBalance(address: string): Promise<bigint> {
   const retval = await simulateReadOnly(
-    settlementContract.call("balance", nativeToScVal(address, { type: "address" })),
+    settlementContract.call(
+      "balance",
+      nativeToScVal(address, { type: "address" }),
+    ),
   );
   return BigInt(scValToNative(retval));
 }
@@ -110,15 +123,22 @@ async function submitContractOperation(
     networkPassphrase: Networks.TESTNET,
     address: sourceAddress,
   });
-  const signedTransaction = TransactionBuilder.fromXDR(signed.signedTxXdr, Networks.TESTNET);
+  const signedTransaction = TransactionBuilder.fromXDR(
+    signed.signedTxXdr,
+    Networks.TESTNET,
+  );
   const sendResponse = await server.sendTransaction(signedTransaction);
 
   if (sendResponse.status === "ERROR") {
-    throw new Error(normalizeContractError(sendResponse.errorResult, contractContext));
+    throw new Error(
+      normalizeContractError(sendResponse.errorResult, contractContext),
+    );
   }
 
   if (sendResponse.status === "TRY_AGAIN_LATER") {
-    throw new Error("The Stellar testnet asked us to try again later. Wait a moment and retry.");
+    throw new Error(
+      "The Stellar testnet asked us to try again later. Wait a moment and retry.",
+    );
   }
 
   const hash = sendResponse.hash;
@@ -128,11 +148,15 @@ async function submitContractOperation(
   });
 
   if (confirmation.status === rpc.Api.GetTransactionStatus.FAILED) {
-    throw new Error(normalizeContractError(confirmation.resultXdr, contractContext));
+    throw new Error(
+      normalizeContractError(confirmation.resultXdr, contractContext),
+    );
   }
 
   if (confirmation.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
-    throw new Error("The transaction was submitted but was not confirmed before polling timed out.");
+    throw new Error(
+      "The transaction was submitted but was not confirmed before polling timed out.",
+    );
   }
 
   return { hash };

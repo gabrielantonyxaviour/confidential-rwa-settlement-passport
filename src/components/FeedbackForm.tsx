@@ -1,3 +1,5 @@
+import { trackEvent } from "../lib/analytics";
+
 const FEEDBACK_FORM_URL = "https://forms.gle/tahNmZ7aWskJo5TP9";
 
 type FeedbackFormProps = {
@@ -18,6 +20,7 @@ export function FeedbackForm({ walletAddress }: FeedbackFormProps) {
         href={FEEDBACK_FORM_URL}
         target="_blank"
         rel="noreferrer"
+        onClick={() => trackEvent("feedback_click", walletAddress ?? undefined)}
       >
         Open feedback form
       </a>

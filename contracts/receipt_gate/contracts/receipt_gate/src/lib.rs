@@ -1,5 +1,8 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, BytesN, Env};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env, IntoVal,
+    InvokeError, Symbol, Val, Vec as SorobanVec,
+};
 
 #[contract]
 pub struct ReceiptGate;
@@ -16,7 +19,7 @@ pub struct SettlementPassReceipt {
 #[derive(Clone)]
 enum DataKey {
     Admin,
-    TrustedVerifierHash,
+    Verifier,
     Nullifier(BytesN<32>),
     Receipt(BytesN<32>),
 }
@@ -33,11 +36,7 @@ pub enum GateError {
 
 #[contractimpl]
 impl ReceiptGate {
-    pub fn init(
-        env: Env,
-        admin: Address,
-        trusted_verifier_hash: BytesN<32>,
-    ) -> Result<(), GateError> {
+    pub fn init(env: Env, admin: Address, verifier: Address) -> Result<(), GateError> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(GateError::AlreadyInitialized);
         }
@@ -45,9 +44,7 @@ impl ReceiptGate {
         admin.require_auth();
 
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::TrustedVerifierHash, &trusted_verifier_hash);
+        env.storage().instance().set(&DataKey::Verifier, &verifier);
 
         Ok(())
     }
@@ -57,15 +54,10 @@ impl ReceiptGate {
         credential_root: BytesN<32>,
         nullifier: BytesN<32>,
         action_id: BytesN<32>,
-        verifier_hash: BytesN<32>,
+        public_inputs: Bytes,
+        proof_bytes: Bytes,
     ) -> Result<SettlementPassReceipt, GateError> {
-        let trusted: BytesN<32> = env
-            .storage()
-            .instance()
-            .get(&DataKey::TrustedVerifierHash)
-            .unwrap();
-
-        if verifier_hash != trusted {
+        if !public_inputs_match_receipt(&env, &public_inputs, &credential_root, &nullifier) {
             return Err(GateError::BadVerifierEvidence);
         }
 
@@ -76,6 +68,9 @@ impl ReceiptGate {
         {
             return Err(GateError::DuplicateNullifier);
         }
+
+        let verifier: Address = env.storage().instance().get(&DataKey::Verifier).unwrap();
+        verify_proof(&env, &verifier, public_inputs, proof_bytes)?;
 
         let receipt = SettlementPassReceipt {
             credential_root,
@@ -112,6 +107,41 @@ impl ReceiptGate {
 
         Ok(receipt)
     }
+}
+
+fn public_inputs_match_receipt(
+    env: &Env,
+    public_inputs: &Bytes,
+    credential_root: &BytesN<32>,
+    nullifier: &BytesN<32>,
+) -> bool {
+    if public_inputs.len() != 96 {
+        return false;
+    }
+
+    bytes32_at(env, public_inputs, 32) == *credential_root
+        && bytes32_at(env, public_inputs, 64) == *nullifier
+}
+
+fn bytes32_at(env: &Env, bytes: &Bytes, start: u32) -> BytesN<32> {
+    let mut out = [0u8; 32];
+    bytes.slice(start..start + 32).copy_into_slice(&mut out);
+    BytesN::from_array(env, &out)
+}
+
+fn verify_proof(
+    env: &Env,
+    verifier: &Address,
+    public_inputs: Bytes,
+    proof_bytes: Bytes,
+) -> Result<(), GateError> {
+    let mut args: SorobanVec<Val> = SorobanVec::new(env);
+    args.push_back(public_inputs.into_val(env));
+    args.push_back(proof_bytes.into_val(env));
+
+    env.try_invoke_contract::<(), InvokeError>(verifier, &Symbol::new(env, "verify_proof"), args)
+        .map_err(|_| GateError::BadVerifierEvidence)?
+        .map_err(|_| GateError::BadVerifierEvidence)
 }
 
 mod test;

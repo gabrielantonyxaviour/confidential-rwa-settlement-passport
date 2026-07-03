@@ -1,6 +1,10 @@
 import type { CompiledCircuit, InputMap, ProofData } from "@noir-lang/types";
-import { BN254_FIELD_PRIME, deriveSettlementAction, type SettlementAction } from "./action";
-import { uint8ArrayToBytes32Hex, normalizeBytes32Hex } from "./bytes";
+import {
+  BN254_FIELD_PRIME,
+  deriveSettlementAction,
+  type SettlementAction,
+} from "./action";
+import { normalizeBytes32Hex } from "./bytes";
 import { CIRCUIT_ARTIFACT_URL, DEMO_THRESHOLD } from "./config";
 
 export type SettlementProofInputs = {
@@ -16,7 +20,10 @@ export type SettlementProofInputs = {
   nullifier: string;
 };
 
-export type SettlementCredentialInputs = Omit<SettlementProofInputs, "action_hash" | "nullifier">;
+export type SettlementCredentialInputs = Omit<
+  SettlementProofInputs,
+  "action_hash" | "nullifier"
+>;
 
 export type SettlementProofResult = ProofData & {
   threshold: string;
@@ -28,7 +35,13 @@ export type SettlementProofResult = ProofData & {
 };
 
 type PedersenApi = {
-  pedersenHash(command: { inputs: Uint8Array[]; hashIndex: number }): Promise<{ hash: Uint8Array }>;
+  pedersenHash(inputs: FrLike[], hashIndex: number): Promise<FrLike>;
+};
+
+type FrConstructor = new (value: bigint) => FrLike;
+
+type FrLike = {
+  toString(): string;
 };
 
 export const DEMO_CREDENTIAL_INPUTS: SettlementCredentialInputs = {
@@ -39,7 +52,8 @@ export const DEMO_CREDENTIAL_INPUTS: SettlementCredentialInputs = {
   sibling_1_on_left: true,
   reserve_value: "75",
   threshold: DEMO_THRESHOLD,
-  credential_root: "0x2c9754da3b2f3b3aabc5b9177cfb6109226f6c7daf802afcc4513e9391bdc327",
+  credential_root:
+    "0x2c9754da3b2f3b3aabc5b9177cfb6109226f6c7daf802afcc4513e9391bdc327",
 };
 
 let circuitArtifactPromise: Promise<CompiledCircuit> | null = null;
@@ -48,7 +62,11 @@ export async function generateSettlementProof(
   buyerAddress: string,
   credentialInputs: SettlementCredentialInputs = DEMO_CREDENTIAL_INPUTS,
 ): Promise<SettlementProofResult> {
-  return generateSettlementProofFromCircuit(await loadCircuitArtifact(), buyerAddress, credentialInputs);
+  return generateSettlementProofFromCircuit(
+    await loadCircuitArtifact(),
+    buyerAddress,
+    credentialInputs,
+  );
 }
 
 export async function generateSettlementProofFromCircuit(
@@ -56,24 +74,27 @@ export async function generateSettlementProofFromCircuit(
   buyerAddress: string,
   credentialInputs: SettlementCredentialInputs = DEMO_CREDENTIAL_INPUTS,
 ): Promise<SettlementProofResult> {
-  const [{ Noir }, { BackendType, Barretenberg, UltraHonkBackend }] = await Promise.all([
+  const [{ Noir }, { Barretenberg, Fr, UltraHonkBackend }] = await Promise.all([
     import("@noir-lang/noir_js"),
     import("@aztec/bb.js"),
   ]);
   const noir = new Noir(circuit);
-  const api = await Barretenberg.new({
-    backend: BackendType.Wasm,
-    threads: 1,
-  });
+  const api = await Barretenberg.new({ threads: 1 });
+  const backend = new UltraHonkBackend(circuit.bytecode, { threads: 1 });
 
   try {
-    const { inputs, action } = await buildProofInputs(api, buyerAddress, credentialInputs);
+    const { inputs, action } = await buildProofInputs(
+      api,
+      Fr,
+      buyerAddress,
+      credentialInputs,
+    );
     const { witness } = await noir.execute(toNoirInputMap(inputs));
-    const backend = new UltraHonkBackend(circuit.bytecode, api);
-    const proofData = await backend.generateProof(witness);
+    const proofData = await backend.generateProof(witness, { keccak: true });
     return normalizeProofResult(proofData, action, buyerAddress.trim());
   } finally {
     await api.destroy();
+    await backend.destroy();
   }
 }
 
@@ -81,39 +102,45 @@ export async function verifySettlementProofFromCircuit(
   circuit: CompiledCircuit,
   proofData: ProofData,
 ): Promise<boolean> {
-  const { BackendType, Barretenberg, UltraHonkBackend } = await import("@aztec/bb.js");
-  const api = await Barretenberg.new({
-    backend: BackendType.Wasm,
-    threads: 1,
-  });
+  const { UltraHonkBackend } = await import("@aztec/bb.js");
+  const backend = new UltraHonkBackend(circuit.bytecode, { threads: 1 });
 
   try {
-    const backend = new UltraHonkBackend(circuit.bytecode, api);
-    return backend.verifyProof(proofData);
+    return backend.verifyProof(proofData, { keccak: true });
   } finally {
-    await api.destroy();
+    await backend.destroy();
   }
 }
 
 async function loadCircuitArtifact(): Promise<CompiledCircuit> {
-  circuitArtifactPromise ??= fetch(CIRCUIT_ARTIFACT_URL).then(async (response) => {
-    if (!response.ok) {
-      throw new Error("The settlement passport circuit artifact could not be loaded.");
-    }
+  circuitArtifactPromise ??= fetch(CIRCUIT_ARTIFACT_URL).then(
+    async (response) => {
+      if (!response.ok) {
+        throw new Error(
+          "The settlement passport circuit artifact could not be loaded.",
+        );
+      }
 
-    return (await response.json()) as CompiledCircuit;
-  });
+      return (await response.json()) as CompiledCircuit;
+    },
+  );
 
   return circuitArtifactPromise;
 }
 
 async function buildProofInputs(
   api: PedersenApi,
+  Fr: FrConstructor,
   buyerAddress: string,
   credentialInputs: SettlementCredentialInputs,
 ): Promise<{ inputs: SettlementProofInputs; action: SettlementAction }> {
   const action = await deriveSettlementAction(buyerAddress);
-  const nullifier = await pedersenHashFields(api, credentialInputs.leaf, action.actionHashField);
+  const nullifier = await pedersenHashFields(
+    api,
+    Fr,
+    credentialInputs.leaf,
+    action.actionHashField,
+  );
 
   return {
     action,
@@ -125,31 +152,28 @@ async function buildProofInputs(
   };
 }
 
-async function pedersenHashFields(api: PedersenApi, left: string, right: string): Promise<string> {
-  const response = await api.pedersenHash({
-    inputs: [fieldToBigEndianBytes(left), fieldToBigEndianBytes(right)],
-    hashIndex: 0,
-  });
+async function pedersenHashFields(
+  api: PedersenApi,
+  Fr: FrConstructor,
+  left: string,
+  right: string,
+): Promise<string> {
+  const response = await api.pedersenHash(
+    [fieldToFr(Fr, left), fieldToFr(Fr, right)],
+    0,
+  );
 
-  return `0x${uint8ArrayToBytes32Hex(response.hash)}`;
+  return `0x${normalizeBytes32Hex(response.toString())}`;
 }
 
-function fieldToBigEndianBytes(value: string): Uint8Array {
+function fieldToFr(Fr: FrConstructor, value: string): FrLike {
   const field = BigInt(value);
 
   if (field < 0n || field >= BN254_FIELD_PRIME) {
     throw new Error("Expected a BN254 field element.");
   }
 
-  const bytes = new Uint8Array(32);
-  let remaining = field;
-
-  for (let index = bytes.length - 1; index >= 0; index -= 1) {
-    bytes[index] = Number(remaining & 0xffn);
-    remaining >>= 8n;
-  }
-
-  return bytes;
+  return new Fr(field);
 }
 
 function toNoirInputMap(inputs: SettlementProofInputs): InputMap {
@@ -175,7 +199,9 @@ function normalizeProofResult(
   const [threshold, credentialRoot, nullifier] = proofData.publicInputs;
 
   if (!threshold || !credentialRoot || !nullifier) {
-    throw new Error("The settlement passport proof did not return the expected public inputs.");
+    throw new Error(
+      "The settlement passport proof did not return the expected public inputs.",
+    );
   }
 
   return {

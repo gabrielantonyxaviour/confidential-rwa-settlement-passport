@@ -13,6 +13,7 @@ contracts/receipt_gate/contracts/*/target/
 circuits/settlement_passport/target/
 circuits/settlement_passport/.home/
 circuits/settlement_passport/Prover.toml
+/.home/
 
 # Local agent session memory, not project documentation
 AGENTS.md

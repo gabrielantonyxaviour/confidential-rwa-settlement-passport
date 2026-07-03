@@ -1,0 +1,7 @@
+[package]
+name = "settlement_passport"
+type = "bin"
+authors = ["Codex"]
+compiler_version = ">=1.0.0"
+
+[dependencies]

@@ -1,0 +1,18 @@
+node_modules
+dist
+dist-ssr
+*.local
+.env
+.env.*
+
+# Rust / Soroban contract build artifacts
+contracts/receipt_gate/target/
+contracts/receipt_gate/contracts/*/target/
+
+# Noir circuit build artifacts and sandboxed HOME
+circuits/settlement_passport/target/
+circuits/settlement_passport/.home/
+circuits/settlement_passport/Prover.toml
+
+# Local agent session memory, not project documentation
+AGENTS.md

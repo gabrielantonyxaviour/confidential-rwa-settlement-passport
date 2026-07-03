@@ -83,4 +83,4 @@ npm test
 
 ## Feedback
 
-User feedback is collected via [Google Form link — added once real user testing begins]. See `proof/INTEGRATION_LEDGER.md` for the full development and verification history.
+After trying the demo, please leave feedback here: **https://forms.gle/tahNmZ7aWskJo5TP9** (name, wallet address, rating, comments — takes about a minute). See `proof/INTEGRATION_LEDGER.md` for the full development and verification history.

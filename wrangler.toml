@@ -1,0 +1,8 @@
+name = "rwa-settlement-passport"
+compatibility_date = "2026-06-01"
+pages_build_output_dir = "dist"
+
+[[kv_namespaces]]
+binding = "ANALYTICS_KV"
+id = "5c56338b458445218a1ee33f31336761"
+preview_id = "9e81803eda324fa7993fce50d3943269"
